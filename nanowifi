@@ -4,11 +4,17 @@
 #include "NewPing.h"
 #include "LiquidCrystal.h"
 #include "Relay.h"
-#include <SoftwareSerial.h>
+#include "WiFiEsp.h"
+
+// Emulate EspSerial on pins 2/3 if not present
+#ifndef HAVE_HWEspSerial
+#include "SoftwareSerial.h"
+SoftwareSerial EspSerial(2, 3); // RX, TX
+#endif
 
 
 // Pin Definitions
-#define HCSR04_PIN_TRIG  11
+#define HCSR04_PIN_TRIG 11
 #define HCSR04_PIN_ECHO 12
 #define LCD_PIN_RS  9
 #define LCD_PIN_E 8
@@ -18,11 +24,9 @@
 #define LCD_PIN_DB7 7
 #define RELAYMODULE_PIN_SIGNAL  10
 
-#ifndef HAVE_HWEspSerial
-#include "SoftwareSerial.h"
-SoftwareSerial EspSerial(2, 3); // RX, TX
-#endif
-  
+// Global variables and defines
+
+// object initialization
 NewPing hcsr04(HCSR04_PIN_TRIG,HCSR04_PIN_ECHO);
 LiquidCrystal lcd(LCD_PIN_RS,LCD_PIN_E,LCD_PIN_DB4,LCD_PIN_DB5,LCD_PIN_DB6,LCD_PIN_DB7);
 Relay relayModule(RELAYMODULE_PIN_SIGNAL);
@@ -33,18 +37,39 @@ const int timeout = 10000;       //define timeout of 10 sec
 char menuOption = 0;
 long time0;
 
-// Setup the essentials for your circuit to work. It runs first every time your circuit is powered with electricity.
+char ssid[] = "mspot";           // your network SSID (name)
+char pass[] = "********";        // your network password (change it)
+int status = WL_IDLE_STATUS;     // the Wifi radio's status
 
+// Setup the essentials for your circuit to work. It runs first every time your circuit is powered with electricity.
 void setup() 
 {
+    // Setup Serial which is useful for debugging
+    // Use the Serial Monitor to view printed messages
     Serial.begin(115200);
     while (!Serial) ; // wait for serial port to connect. Needed for native USB
     Serial.println("start");
     delay(2000);
     EspSerial.begin(9600); // your esp's baud rate might be different 9600, 57600, 76800 or 115200
     delay(2000);
-    Serial.println("Trying to send AT+GMR ...");
-    EspSerial.println("AT+GMR");
+    WiFi.init(&EspSerial);
+
+    if (WiFi.status() == WL_NO_SHIELD) {
+      Serial.println("WiFi shield not present");
+      // don't continue
+      while (true);
+      }
+
+      // attempt to connect to WiFi network
+      while ( status != WL_CONNECTED) {
+      Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network
+    status = WiFi.begin(ssid, pass);
+    }
+
+  // you're connected now, so print out the data
+  Serial.println("You're connected to the network");
     
     // set up the LCD's number of columns and rows
     lcd.begin(16, 2);
@@ -55,32 +80,12 @@ void setup()
 // Main logic of your circuit. It defines the interaction between the components you selected. After setup, it runs over and over again, in an eternal loop.
 void loop() 
 {
-    if(EspSerial.available()) // check if the ESP module is sending a message 
-    {
-      while(EspSerial.available())
-      {
-        // The esp has data so display its output to the serial window 
-        char c = EspSerial.read(); // read the next character.
-        Serial.write(c);
-      }  
-    }
-    
-    if(Serial.available()) // check if connection through Serial Monitor from computer is available
-    {
-      // the following delay is required because otherwise the arduino will read the first letter of the command but not the rest
-      // In other words without the delay if you use AT+RST, for example, the Arduino will read the letter A send it, then read the rest and send it
-      // but we want to send everything at the same time.
-      delay(1000); 
-      
-      String command="";
-      
-      while(Serial.available()) // read the command character by character
-      {
-          // read one character
-        command+=(char)Serial.read();
-      }
-      EspSerial.println(command); // send the read character to the Esp module
-    }
+      // check the network connection once every 10 seconds
+  Serial.println();
+  printCurrentNet();
+  printWifiData();
+  
+  delay(10000);
     
     if(menuOption == '1') {
     // Ultrasonic Sensor - HC-SR04 - Test Code
@@ -155,3 +160,38 @@ char menu()
         }
     }
 }
+
+void printWifiData() {
+  // print your WiFi shield's IP address
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  // print your MAC address
+  byte mac[6];
+  WiFi.macAddress(mac);
+  char buf[20];
+  sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+  Serial.print("MAC address: ");
+  Serial.println(buf);
+}
+
+void printCurrentNet() {
+  // print the SSID of the network you're attached to
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print the MAC address of the router you're attached to
+  byte bssid[6];
+  WiFi.BSSID(bssid);
+  char buf[20];
+  sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", bssid[5], bssid[4], bssid[3], bssid[2], bssid[1], bssid[0]);
+  Serial.print("BSSID: ");
+  Serial.println(buf);
+
+  // print the received signal strength
+  long rssi = WiFi.RSSI();
+  Serial.print("Signal strength (RSSI): ");
+  Serial.println(rssi);
+}
+
